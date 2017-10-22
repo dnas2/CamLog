@@ -22,7 +22,7 @@ namespace UI
         {
             //WinKey = new WinKey("COM17");
             CWMacro = new CWMacro(null);
-            if (Radio is WinKey)
+            if (Radio is IWinKey)
                 CWMacro.WinKey = (WinKey)Radio;
             else
                 CWMacro.WinKey = WinKey;
@@ -44,8 +44,8 @@ namespace UI
                 if (!string.IsNullOrEmpty(lf.CivSerialPort) && lf.RadioModel.HasValue)
                 {
                     Radio = new RadioFactory().GetRadio(lf.RadioModel.Value, new RadioConnectionSettings { BaudRate = lf.CivSpeed, FlowControl = FlowControl.None, Port = lf.CivSerialPort, UseDTR = lf.CivDtr, UseRTS = lf.CivRts});
-                    if (Radio is WinKey)
-                        CWMacro.WinKey = (WinKey)Radio;
+                    if (Radio is IWinKey)
+                        CWMacro.WinKey = (IWinKey)Radio;
                     if (CivServerChanged != null)
                         CivServerChanged(this, new EventArgs());
                 }

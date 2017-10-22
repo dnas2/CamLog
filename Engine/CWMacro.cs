@@ -16,7 +16,7 @@ namespace Engine
             set { m_ContactStore = value; LoadMacros(); }
         }
 
-        public WinKey WinKey { get; set; }
+        public IWinKey WinKey { get; set; }
 
         private List<string> m_Macros = new List<string>(12);
 
@@ -41,6 +41,9 @@ namespace Engine
 
         public void SendMacro(int number, Dictionary<string, string> values)
         {
+            if (WinKey == null)
+                throw new InvalidOperationException("No WinKey or compatible radio available");
+
             string s = GetMacro(number);
             if (s == null)
                 return;
@@ -58,12 +61,13 @@ namespace Engine
         {
             m_Macros = new List<string>
             {
-                "CQ GS3PYE/P GS3PYE/P K",
-                "{{HISCALL}} {{EXCHTX}}",
-                "TU {{MYCALL}}",
-                "{{MYCALL}}",
-                "{{HISCALL}}",
-                "?"
+                "CQ {{MYCALL}} {{MYCALL}} K", // F1
+                "{{HISCALL}} {{EXCHTX}}", // F2
+                "TU {{MYCALL}}", // F3
+                "{{MYCALL}}", // F4
+                "{{HISCALL}}", // F5
+                "?", // F6
+                "EU123" // F7
             };
         }
     }

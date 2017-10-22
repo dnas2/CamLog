@@ -13,6 +13,7 @@ namespace Engine
         FM,
         AM,
         JT6m,
+        JT65,
         JT65b,
         JT65c,
         JT4Other,
@@ -25,6 +26,13 @@ namespace Engine
         SSTV,
         DStar,
         ISCAT,
+        MSK144,
+        FSK315,
+        FT8,
+        Hell,
+        Thrbx,
+        Domino,
+        Thor,
     }
 
     public static class ModeHelper
@@ -38,6 +46,7 @@ namespace Engine
                 case Mode.FM: return "FM";
                 case Mode.AM: return "AM";
                 case Mode.JT6m: return "JT6m";
+                case Mode.JT65: return "JT65";
                 case Mode.JT65b: return "JT65b";
                 case Mode.JT65c: return "JT65c";
                 case Mode.JT4Other: return "JT4*";
@@ -49,6 +58,13 @@ namespace Engine
                 case Mode.DStar: return "D-STAR";
                 case Mode.SSTV: return "SSTV";
                 case Mode.ISCAT: return "ISCAT";
+                case Mode.MSK144: return "MSK144";
+                case Mode.FSK315: return "FSK315";
+                case Mode.FT8: return "FT8";
+                case Mode.Hell: return "HELL";
+                case Mode.Thrbx: return "THRBX";
+                case Mode.Domino: return "DOMINO";
+                case Mode.Thor: return "THOR";
                 default: return "Unknown";
             }
         }
@@ -105,6 +121,7 @@ namespace Engine
                 case "FM": return Mode.FM;
                 case "JTMS": return Mode.JTMS;
                 case "JT6M": return Mode.JT6m;
+                case "JT65": return Mode.JT65;
                 case "JT65B": return Mode.JT65b;
                 case "JT65C": return Mode.JT65c;
                 case "JT4*": return Mode.JT4Other;
@@ -116,6 +133,13 @@ namespace Engine
                 case "DSTAR": return Mode.DStar;
                 case "SSTV": return Mode.SSTV;
                 case "ISCAT": return Mode.ISCAT;
+                case "MSK144": return Mode.MSK144;
+                case "FSK315": return Mode.FSK315;
+                case "FT8": return Mode.FT8;
+                case "HELL": return Mode.Hell;
+                case "THRBX": return Mode.Thrbx;
+                case "DOMINO": return Mode.Domino;
+                case "THOR": return Mode.Thor;
                 default: return Mode.Unknown;
             }
         }
@@ -134,6 +158,9 @@ namespace Engine
                 case Mode.JT65b:
                 case Mode.JT65c:
                     return "00";
+                case Mode.FSK315:
+                case Mode.MSK144:
+                    return "+00";
                 case Mode.ISCAT:
                     return "-15";
                 default:

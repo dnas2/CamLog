@@ -344,31 +344,54 @@ operator, band, mode, frequency, reportTx, reportRx, locator, notes, serialSent,
             MySqlConnection conn = OpenConnection;
             lock (conn)
             {
+                bool useSerialReservation = true;
+                bool serialPerBand = false;
+
+                string bandString;
+                if (serialPerBand)
+                    bandString = " AND band=?band";
+                else
+                    bandString = string.Empty;
+
+
                 int nextSerial;
-                bool needToCreate;
+
+                if (!useSerialReservation)
+                {
+                    using (MySqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT MAX(CAST(serialSent as SIGNED)) FROM log WHERE TRUE" + bandString + ";";
+                        cmd.Parameters.AddWithValue("?band", BandHelper.ToString(band));
+                        using (var reader = cmd.ExecuteReader())
+                        {
+                            reader.Read();
+                            if (reader.IsDBNull(0))
+                                nextSerial = 1;
+                            else
+                                nextSerial = reader.GetInt32(0) + 1;
+                        }
+                    }
+                    return nextSerial;
+                }
+
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT nextSerial FROM serials WHERE band=?band;";
+                    cmd.CommandText = "SELECT MAX(nextSerial) FROM serials WHERE TRUE" + bandString + ";";
                     cmd.Parameters.AddWithValue("?band", BandHelper.ToString(band));
                     object nextSerialObj = cmd.ExecuteScalar();
                     if (nextSerialObj is int)
                     {
                         nextSerial = (int)nextSerialObj;
-                        needToCreate = false;
                     }
                     else
                     {
                         nextSerial = 1;
-                        needToCreate = true;
                     }
                 }
 
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    if (needToCreate)
-                        cmd.CommandText = "INSERT INTO serials (band, nextSerial) VALUES (?band, ?nextSerial);";
-                    else
-                        cmd.CommandText = "UPDATE serials SET nextSerial=?nextSerial WHERE band=?band;";
+                    cmd.CommandText = "INSERT INTO serials (band, nextSerial) VALUES (?band, ?nextSerial) ON DUPLICATE KEY UPDATE nextSerial=?nextSerial;";
 
                     cmd.Parameters.AddWithValue("?band", BandHelper.ToString(band));
                     cmd.Parameters.AddWithValue("?nextSerial", nextSerial + 1);
@@ -491,8 +514,11 @@ operator, band, mode, frequency, reportTx, reportRx, locator, notes, serialSent,
 
         public List<string> GetPartialMatchesKnownCalls(string callsign)
         {
-            return GetPartialMatches(callsign, "knowncalls");
+            return new List<string>();
+            //return GetPartialMatches(callsign, "knowncalls");
         }
+
+        class PreviousQso { public string Callsign; public string Locator; public string Band; }
 
         private List<string> GetPartialMatches(string callsign, string table)
         {
@@ -502,20 +528,31 @@ operator, band, mode, frequency, reportTx, reportRx, locator, notes, serialSent,
                 List<string> matches = new List<string>();
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT callsign, MAX(locator) AS loc FROM " + table + " WHERE callsign LIKE ?callsign GROUP BY callsign ORDER BY callsign";
+                    cmd.CommandText = "SELECT callsign, locator, band FROM " + table + " WHERE callsign LIKE ?callsign ORDER BY callsign, band";
                     cmd.Parameters.AddWithValue("?callsign", string.Format("%{0}%", callsign.ToUpperInvariant()));
+
+                    List<PreviousQso> previousQsos = new List<PreviousQso>();
+
                     using (MySqlDataReader reader = cmd.ExecuteReader())
                     {
                         while (reader.Read())
                         {
-                            string call = reader.GetString(0);
-                            string loc;
-                            if (reader.IsDBNull(1))
-                                loc = string.Empty;
-                            else
-                                loc = reader.GetString(1);
-                            matches.Add(call + " - " + loc);
+                            previousQsos.Add(new PreviousQso {
+                                Callsign = reader.GetString(0),
+                                Locator = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                                Band = reader.GetString(2)
+                            });
                         }
+                    }
+
+                    var previousByCallsign = previousQsos.GroupBy(q => q.Callsign);
+                    foreach (var previousCallsign in previousByCallsign)
+                    {
+                        string call = previousCallsign.Key;
+                        string[] locators = previousCallsign.Select(q => q.Locator).Distinct().ToArray();
+                        string[] bands = previousCallsign.Select(q => q.Band).Distinct().ToArray();
+
+                        matches.Add(string.Format("{0} - {1} - {2}", call, string.Join(", ", locators), string.Join(", ", bands)));
                     }
                 }
                 return matches;
@@ -583,6 +620,27 @@ operator, band, mode, frequency, reportTx, reportRx, locator, notes, serialSent,
                     {
                         cmd.Parameters["?callsign"].Value = callsign.Trim().ToUpperInvariant();
                         cmd.ExecuteNonQuery();
+                    }
+                }
+            }
+        }
+
+        public List<string> GetAllCallsigns()
+        {
+            MySqlConnection conn = OpenConnection;
+            lock (conn)
+            {
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT DISTINCT callsign FROM log;";
+                    using (MySqlDataReader reader = cmd.ExecuteReader())
+                    {
+                        List<string> callsigns = new List<string>();
+                        while (reader.Read())
+                        {
+                            callsigns.Add(reader.GetString("callsign").ToUpperInvariant());
+                        }
+                        return callsigns;
                     }
                 }
             }
@@ -809,7 +867,7 @@ operator, band, mode, frequency, reportTx, reportRx, locator, notes, serialSent,
             else
                 square4 = string.Empty;
 
-            bool newUkSquare = qualifiesForUkMult && !locator4SquaresSeen.Contains(square4.ToLowerInvariant());
+            bool newUkSquare = qualifiesForUkMult && !ukLocator4SquaresSeen.Contains(square4.ToLowerInvariant());
             if (newUkSquare)
                 ukLocator4SquaresSeen.Add(square4.ToLowerInvariant());
 

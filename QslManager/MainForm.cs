@@ -18,6 +18,7 @@ namespace QslManager
         private List<Contact> m_VisibleContacts;
         private List<SourceCallsign> m_SourceIdCallsigns;
         private SourceCallsign m_SelectedSource;
+        private List<string> m_CallsignsInLog;
         private int m_LabelsUsed;
 
         private IPageLayout m_PageLayout = new LayoutAvery7160();
@@ -62,6 +63,7 @@ namespace QslManager
 
                 m_ContactStore = lf.ContactStore;
                 m_SourceIdCallsigns = m_ContactStore.GetSources();
+                m_CallsignsInLog = m_ContactStore.GetAllCallsigns();
 
                 m_OurCallsign.BeginUpdate();
                 m_OurCallsign.Items.Clear();
@@ -98,16 +100,47 @@ namespace QslManager
                 return;
             }
 
-            // Get the previous contacts, filtering according to the selected source
+            System.Threading.ThreadPool.QueueUserWorkItem(_ => UpdateVisibleContacts(m_TxtCallsign.Text, deepSearch, m_SelectedSource.SourceID));
+        }
+
+        private void UpdateVisibleContacts(string callsign, bool deepSearch, int sourceID)
+        {
+            List<Contact> newVisibleContacts;
+
             if (!deepSearch)
-                m_VisibleContacts = m_ContactStore.GetPreviousContacts(m_TxtCallsign.Text).FindAll(c => c.SourceId == m_SelectedSource.SourceID);
+            {
+                // See if we can shortcut the database by checking if the callsign appears in the log at all
+                if (!m_CallsignsInLog.Contains(callsign.ToUpperInvariant()))
+                    newVisibleContacts = new List<Contact> ();
+                else
+                    newVisibleContacts = m_ContactStore.GetPreviousContacts(callsign).FindAll(c => c.SourceId == sourceID);
+            }
             else
-                m_VisibleContacts = m_ContactStore.GetApproximateMatches(m_TxtCallsign.Text).FindAll(c => c.SourceId == m_SelectedSource.SourceID);
-            
+            {
+                newVisibleContacts = m_ContactStore.GetApproximateMatches(callsign).FindAll(c => c.SourceId == sourceID);
+            }
+
+            BeginInvoke(new MethodInvoker(() => RedrawVisibleContacts(callsign, newVisibleContacts, deepSearch)));
+        }
+
+        private void RedrawVisibleContacts(string callsign, List<Contact> newVisibleContacts, bool deepSearch)
+        {
+            if (Disposing || IsDisposed || !IsHandleCreated)
+                return;
+
+            // We pass in callsign here to check the callsign textbox hasn't been changed since we were called, in case lookups complete out of order
+            if (m_TxtCallsign.Text != callsign)
+                return;
+
+            m_VisibleContacts = newVisibleContacts;
+
+            // If they've got loads of QSOs, default to not checked, as most incoming cards only have one QSO on them
+            bool checkedByDefault = !deepSearch && m_VisibleContacts.Count < 2;
+
             foreach (Contact c in m_VisibleContacts)
             {
                 m_ContactsGrid.Rows.Add(new object[] { 
-                    c.QslRxDate == null && !deepSearch, 
+                    c.QslRxDate == null && checkedByDefault, 
                     c.Callsign, 
                     c.StartTime, 
                     BandHelper.ToString(c.Band), 
@@ -117,6 +150,23 @@ namespace QslManager
                     c.QslTxDate == null ? "-" : c.QslTxDate.Value.ToShortDateString(), 
                     c.QslMethod == null ? "-" : c.QslMethod
                 });
+            }
+        }
+        
+        private void m_SelectAllUnsent_Click(object sender, EventArgs e)
+        {
+            if (m_VisibleContacts == null || m_VisibleContacts.Count == 0)
+                return;
+
+            List<Contact> contactsToPrint = new List<Contact>();
+            for (int row = 0; row < m_VisibleContacts.Count; row++)
+            {
+                Contact c = m_VisibleContacts[row];
+                if (c.QslRxDate == null)
+                {
+                    DataGridViewRow gridRow = m_ContactsGrid.Rows[row];
+                    gridRow.Cells[0].Value = true;
+                }
             }
         }
 

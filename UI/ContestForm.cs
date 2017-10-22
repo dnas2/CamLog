@@ -21,6 +21,7 @@ namespace UI
         private Controller Controller { get; set; }
         private ContactStore m_ContactStore;
         private IRadio m_RadioCAT;
+        private double m_TransverterOffsetMHz;
         private CallsignLookup m_CallsignLookup = new CallsignLookup("cty.xml.gz");
         private Locator m_OurLocatorValue = new Locator(Settings.Get("Locator", "JO02ce"));
         private Label[][] m_ContactTableLabels;
@@ -68,6 +69,8 @@ namespace UI
             m_SerialReceived.Text = string.Empty;
             m_Locator.Text = string.Empty;
             m_Comments.Text = string.Empty;
+            m_Notes.Text = string.Empty;
+            m_Notes.BackColor = Color.Transparent;
 
             if (newSerial && m_ContactStore != null) // Can't do this before we connect to the DB
                 m_SerialSent.Text = m_ContactStore.GetSerial(BandHelper.Parse(m_Band.Text)).ToString().PadLeft(3, '0'); // For IOTA just use unknown band
@@ -162,11 +165,19 @@ namespace UI
                 try
                 {
                     Locator theirLocator = new Locator(m_Locator.Text);
-                    m_Beam.Text = Geographics.BeamHeading(m_OurLocatorValue, theirLocator).ToString();
-                    int distance = (int)Math.Ceiling(Geographics.GeodesicDistance(m_OurLocatorValue, theirLocator) / 1000);
-                    if (distance == 0)
-                        distance = 1; // By definition - QSOs in same square = 1 point
-                    m_Distance.Text = distance.ToString();
+                    if (theirLocator.IsValid)
+                    {
+                        m_Beam.Text = Geographics.BeamHeading(m_OurLocatorValue, theirLocator).ToString();
+                        int distance = (int)Math.Ceiling(Geographics.GeodesicDistance(m_OurLocatorValue, theirLocator) / 1000);
+                        if (distance == 0)
+                            distance = 1; // By definition - QSOs in same square = 1 point
+                        m_Distance.Text = distance.ToString();
+                    }
+                    else
+                    {
+                        m_Beam.Text = string.Empty;
+                        m_Distance.Text = string.Empty;
+                    }
                 }
                 catch (ArgumentException)
                 {
@@ -275,8 +286,9 @@ namespace UI
         {
             Invoke(new MethodInvoker(delegate
             {
-                m_Frequency.Text = FrequencyHelper.ToString(m_RadioCAT.PrimaryFrequency);
-                m_OurBand.SelectedItem = BandHelper.ToString(BandHelper.FromFrequency(m_RadioCAT.PrimaryFrequency));
+                long frequencyWithOffset = m_RadioCAT.PrimaryFrequency + (long)(m_TransverterOffsetMHz * 1000000);
+                m_Frequency.Text = FrequencyHelper.ToString(frequencyWithOffset);
+                m_OurBand.SelectedItem = BandHelper.ToString(BandHelper.FromFrequency(frequencyWithOffset));
                 m_OurMode.SelectedItem = ModeHelper.ToString(m_RadioCAT.PrimaryMode);
             }));
         }
@@ -308,7 +320,21 @@ namespace UI
         {
             if (e.KeyCode == Keys.Enter)
             {
-                if (OnlineStatus && ValidateContact())
+                // Check if the callsign field looks like a number...
+                long number;
+                if (long.TryParse(m_Callsign.Text, out number))
+                {
+                    if (number > 1000) // it's probably a frequency
+                    {
+                        if (m_RadioCAT != null)
+                        {
+                            //m_RadioCAT.EqualiseVFOs();
+                            //m_RadioCAT.SecondaryFrequency = number * 1000;
+                        }
+                    }
+                    ClearContactRow(false);
+                }
+                else if (OnlineStatus && ValidateContact())
                 {
                     try
                     {
@@ -434,7 +460,11 @@ namespace UI
                 if (contacts.Count > contactsIndex)
                 {
                     Contact c = contacts[contactsIndex];
-                    bool alert = (c.Notes.Contains(station) || c.Notes.Contains(band) || c.Notes.Contains(op));
+                    string notesLowerInvariant = c.Notes.ToLowerInvariant();
+                    bool alert = (notesLowerInvariant.Contains(station.ToLowerInvariant()) 
+                        || notesLowerInvariant.Contains(band.ToLowerInvariant()) 
+                        || notesLowerInvariant.Contains(op.ToLowerInvariant()));
+
                     Label[] rowLabels = m_ContactTableLabels[i - 1];
                     rowLabels[(int)ContactTableColumns.Band].Text = BandTextFromContact(c);
 
@@ -549,7 +579,7 @@ namespace UI
                         if (previousQsos.Count > 0)
                         {
                             Contact previousQso = previousQsos[previousQsos.Count - 1];
-                            notesText = string.Format("Already worked {0} on {1} (Last: TX: {2} {3:000} / RX: {4} {5:000} on {6})", callsign, BandHelper.ToString(ourBand), previousQso.ReportSent, previousQso.SerialSent, previousQso.ReportReceived, previousQso.SerialReceived, previousQso.StartTime.ToString("d MMM hh:mm"));
+                            notesText = string.Format("Already worked {0} on {1} (TX: {2} {3:000} / RX: {4} {5:000} on {6} / {7})", callsign, BandHelper.ToString(ourBand), previousQso.ReportSent, previousQso.SerialSent, previousQso.ReportReceived, previousQso.SerialReceived, previousQso.StartTime.ToString("d MMM HH:mm"), previousQso.LocatorReceivedString);
                         }
                         else
                         {
@@ -566,7 +596,11 @@ namespace UI
                         }
                         notesText = string.Format("Worked {0} on {1} - {2}", callsign, bandString, existingLocator);
                         if (existingLocator != null)
+                        {
                             locatorText = existingLocator.ToString();
+                            beamText = Geographics.BeamHeading(ourLocatorValue, existingLocator).ToString();
+                            distanceText = Math.Ceiling(Geographics.GeodesicDistance(ourLocatorValue, existingLocator) / 1000).ToString();
+                        }
                     }
                     else
                     {
@@ -619,7 +653,7 @@ namespace UI
                     if (m_Callsign.Text != callsign)
                         return;
 
-                    if (notesText != null)
+                    if (!string.IsNullOrWhiteSpace(notesText))
                     {
                         m_Notes.Text = notesText;
                         m_Notes.BackColor = notesBackColor;
@@ -702,6 +736,10 @@ namespace UI
         private void m_OurOperator_TextChanged(object sender, EventArgs e)
         {
             Settings.Set("Operator", m_OurOperator.Text);
+            if (m_OurOperator.Text.Length > 7)
+            {
+                MessageBox.Show("Operator callsign longer than expected - are you typing in the right box?");
+            }
         }
 
         private void ExportAdif(object sender, EventArgs e)
@@ -780,7 +818,7 @@ namespace UI
                         {
                             if (m_LocatorSetManually)
                             {
-                                m_Notes.Text = "QRZ.com: Locator found (" + qrz.Locator + ") but not overriding manual value";
+                                m_Notes.Text = "QRZ.com: Locator " + qrz.Locator + " not overriding manual value - " + qrz.Name;
                             }
                             else
                             {
@@ -796,7 +834,7 @@ namespace UI
                             if (qrz == null)
                                 m_Notes.Text = "QRZ.com: No callsign found";
                             else
-                                m_Notes.Text = "QRZ.com: Callsign found, but no locator present";
+                                m_Notes.Text = "QRZ.com: Callsign found, but no locator present. Name: " + qrz.Name;
                         }));
                 }
             }
@@ -830,7 +868,7 @@ namespace UI
                     {
                         Controller.CWMacro.SendMacro(e.KeyCode - Keys.F1, new Dictionary<string, string> { 
                         { "HISCALL", m_Callsign.Text },
-                        { "MYCALL", "GS3PYE/P" },
+                        { "MYCALL", "GB17NH" },
                         { "EXCHTX", m_RstSent.Text.Replace("9", "N").Replace("0", "T") }
                     });
                     }
@@ -841,13 +879,26 @@ namespace UI
                 }
                 else
                 {
+                    try
+                    {
+                        RigCAT.NET.Elecraft.K3 k3 = Controller.Radio as RigCAT.NET.Elecraft.K3;
+                        if (k3 != null)
+                        {
+                            k3.SendDvk(1 + e.KeyCode - Keys.F1); // Assumes KeyCodes for F1-4 are contiguous. Because I am a bad person.
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Error sending DVK macro: " + ex.Message);
+                    }
                 }
             }
             else if (e.KeyCode == Keys.Escape && e.Modifiers == Keys.None)
             {
                 try
                 {
-                    Controller.CWMacro.WinKey.StopSending();
+                    if (Controller.CWMacro.WinKey != null)
+                        Controller.CWMacro.WinKey.StopSending();
                 }
                 catch (Exception ex)
                 {
@@ -905,6 +956,18 @@ namespace UI
                     Settings.Set("QRZPassword", QrzSetup.QrzPassword);
                     m_QrzServer = new QrzServer(Settings.Get("QRZUsername", ""), Settings.Get("QRZPassword", ""));
                 }
+            }
+        }
+
+        private void SetTransverterOffset(object sender, EventArgs e)
+        {
+            using (TransverterOffsetForm tvo = new TransverterOffsetForm())
+            {
+                tvo.Offset = m_TransverterOffsetMHz;
+                DialogResult dr = tvo.ShowDialog();
+                if (dr != System.Windows.Forms.DialogResult.OK)
+                    return;
+                m_TransverterOffsetMHz = tvo.Offset;
             }
         }
     }
